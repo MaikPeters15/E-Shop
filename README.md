@@ -55,7 +55,7 @@ src/
       Migrations/
     Repositories/
     Services/
-  Web/                     # Blazor Server + Minimal APIs (optional)
+Client/                     # Blazor Server + Minimal APIs (optional)
     Pages/
     Components/
     Services/
