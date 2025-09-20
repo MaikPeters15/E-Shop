@@ -1,27 +1,18 @@
-using System.Collections.Generic;
-using System.Linq;
-
 namespace Api.Logging;
 
 public record LogEntry(DateTimeOffset Timestamp, string Level, string? Source, string Message, string? Exception);
 
-public class InMemoryLogStore
+public class InMemoryLogStore(int capacity = 1000)
 {
-    private readonly int _capacity;
     private readonly LinkedList<LogEntry> _logs = new();
     private readonly object _lock = new();
-
-    public InMemoryLogStore(int capacity = 1000)
-    {
-        _capacity = capacity;
-    }
 
     public void Add(LogEntry entry)
     {
         lock (_lock)
         {
             _logs.AddLast(entry);
-            if (_logs.Count > _capacity)
+            if (_logs.Count > capacity)
             {
                 _logs.RemoveFirst();
             }

@@ -1,6 +1,3 @@
-using Serilog;
-using Api.Logging;
-
 var builder = WebApplication.CreateBuilder(args);
 
 // In-memory store for exposing logs to the client
