@@ -1,0 +1,164 @@
+@page "/logs"
+@using Client.Logging
+@using System.Net.Http.Json
+@implements IDisposable
+@inject InMemoryLogStore LogStore
+@inject HttpClient Http
+@inject IConfiguration Config
+
+<h3>Logs</h3>
+
+<div class="d-flex align-items-center gap-2 mb-2">
+    <select class="form-select form-select-sm" style="width: 220px;" @onchange="OnSourceChanged">
+        <option value="Blazor" selected>Blazor (Client)</option>
+        <option value="API">API (Server)</option>
+    </select>
+    <button class="btn btn-sm btn-secondary" @onclick="Clear">Clear</button>
+    <button class="btn btn-sm btn-outline-secondary" @onclick="Refresh">Refresh</button>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <span class="text-danger ms-2">@_error</span>
+    }
+</div>
+
+<div class="table-responsive" style="max-height:65vh; overflow:auto">
+    <table class="table table-sm table-striped table-hover align-middle">
+        <thead class="table-light" style="position: sticky; top: 0;">
+            <tr>
+                <th style="width: 140px;">Time</th>
+                <th style="width: 80px;">Level</th>
+                <th>Source</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var e in _entries)
+            {
+                var rowClass = e.Level switch
+                {
+                    "Error" => "table-danger",
+                    "Fatal" => "table-danger",
+                    "Warning" => "table-warning",
+                    _ => string.Empty
+                };
+                <tr class="@rowClass">
+                    <td>@e.Timestamp.LocalDateTime.ToString("HH:mm:ss.fff")</td>
+                    <td>@e.Level</td>
+                    <td>@e.Source</td>
+                    <td>
+                        <div>@e.Message</div>
+                        @if (!string.IsNullOrWhiteSpace(e.Exception))
+                        {
+                            <pre class="mb-0 small text-danger">@e.Exception</pre>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private IReadOnlyList<LogEntry> _entries = Array.Empty<LogEntry>();
+    private string _selectedSource = "Blazor";
+    private string? _apiBaseUrl;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apiBaseUrl = Config["Api:BaseUrl"];
+        LogStore.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private void OnChanged()
+    {
+        if (_selectedSource == "Blazor")
+        {
+            _entries = LogStore.GetAll().OrderByDescending(e => e.Timestamp).ToList();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnSourceChanged(ChangeEventArgs e)
+    {
+        _selectedSource = e.Value?.ToString() == "API" ? "API" : "Blazor";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        if (_selectedSource == "Blazor")
+        {
+            _entries = LogStore.GetAll().OrderByDescending(e => e.Timestamp).ToList();
+            return;
+        }
+
+        // API logs
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_apiBaseUrl))
+            {
+                _error = "Api:BaseUrl nicht konfiguriert (appsettings.json).";
+                _entries = Array.Empty<LogEntry>();
+                return;
+            }
+
+            var url = CombineUrl(_apiBaseUrl!, "logs");
+            var list = await Http.GetFromJsonAsync<List<LogEntry>>(url);
+            _entries = (list ?? new List<LogEntry>()).OrderByDescending(e => e.Timestamp).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _entries = Array.Empty<LogEntry>();
+        }
+    }
+
+    private async Task Clear()
+    {
+        if (_selectedSource == "Blazor")
+        {
+            LogStore.Clear();
+        }
+        else
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_apiBaseUrl))
+                {
+                    _error = "Api:BaseUrl nicht konfiguriert (appsettings.json).";
+                    return;
+                }
+                var url = CombineUrl(_apiBaseUrl!, "logs");
+                var resp = await Http.DeleteAsync(url);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _error = $"API DELETE /logs fehlgeschlagen: {(int)resp.StatusCode}";
+                }
+            }
+            catch (Exception ex)
+            {
+                _error = ex.Message;
+            }
+        }
+        await LoadAsync();
+    }
+
+    private async Task Refresh()
+    {
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        LogStore.Changed -= OnChanged;
+    }
+
+    private static string CombineUrl(string baseUrl, string path)
+    {
+        if (!baseUrl.EndsWith("/")) baseUrl += "/";
+        return baseUrl + path.TrimStart('/');
+    }
+}
